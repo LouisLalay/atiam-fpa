@@ -10,19 +10,6 @@ This script defines the overall exercise for ATIAM structure course
 @author: esling
 """
 
-# Basic set of imports (here you can see if everything passes)
-from ast import ListComp
-from audioop import tostereo
-import pickle
-from xmlrpc.client import Boolean
-
-# Here collect the whole set of tracks
-def init():
-    midi_database = pickle.load(open("atiam-fpa.pkl", "rb"))
-    composers = midi_database['composers']
-    composers_tracks = midi_database['composers_tracks']
-    return composers, composers_tracks
-
 """
  
 PART 1 - Exploring a track collections (text dictionnaries) and playing with MIDI
@@ -44,6 +31,8 @@ composers_tracks['Beethoven, Ludwig van'] => ['Drinking Song', 'Sonatine No. 3 f
 composers_tracks['Beethoven, Ludwig van'][0] => 'Drinking Song'
 
 """
+from asyncio.windows_events import INFINITE
+from cmath import nan
 import logging
 import pretty_midi
 import numpy as np
@@ -97,7 +86,6 @@ def q_1_2(composers_tracks: dict):
     len_tracks = [len(composers_tracks[x]) for x in composers]
     to_sort = np.array(list(zip(composers, len_tracks)))
     sorting_f = lambda x: x[:,1].astype(int)
-    logging.info(sorting_f(to_sort))
     sorted_composers = my_sort(to_sort, sorting_f, True)
     with np.printoptions(linewidth=np.inf, edgeitems=10):
         logging.info(sorted_composers)
@@ -111,6 +99,10 @@ Q-1.3 Extend your sorting procedure, to sort all tracks from all composers alpha
 # YOUR CODE HERE
 ################
 
+def q_1_3(composers_tracks):
+    tracks = np.concatenate(list(composers_tracks.values()))
+    with np.printoptions(edgeitems=20):
+        logging.info(my_sort(tracks))
 """
 
 MIDI part - In addition to the pickle file, you can find some example MIDI
@@ -170,15 +162,15 @@ def plot_midi(midi_data: pretty_midi.PrettyMIDI, ax: plt.Axes) -> None:
     ax.set_yticks(y_ticks)
     ax.set_yticklabels(note_number_to_name(y_ticks+min_pitch))
     return ax.imshow(mat[min_pitch : max_pitch], 'inferno', aspect="auto", origin='lower')
-def q_1_4(affichage: Boolean = True):
-    folder = "atiam-fpa/"
-    files = [f"beethoven_{i}.mid" for i in range(25)]
-    fig, axes = plt.subplots(5)
+def q_1_4(files, affichage: bool = True):
+    fig, axes = plt.subplots(5, 5)
     if affichage:
-        for id, file in enumerate(files[::5]):
-            midi_data = pretty_midi.PrettyMIDI(folder + file)
-            im = plot_midi(midi_data, axes[id])
-            fig.colorbar(im)
+        for id, file in enumerate(files):
+            try:
+                midi_data = pretty_midi.PrettyMIDI(file)
+                im = plot_midi(midi_data, axes[id//5,id%5])
+            except:
+                print(f"Bad file {file}")
         plt.show()
 '''
 
@@ -193,10 +185,17 @@ file. Then, sort the set of MIDI files based on the number of notes.
 ################
 
 def count_notes(midi_file):
-    midi_data = pretty_midi.PrettyMIDI(midi_file)
-    return (midi_data.get_piano_roll(1)>0).sum()
-def q_1_5():
-    ...
+    try:
+        midi_data = pretty_midi.PrettyMIDI(midi_file)
+        return (midi_data.get_piano_roll(1)>0).sum()
+    except: 
+        return -1
+def q_1_5(files):
+    n_notes = [count_notes(x) for x in files]
+    to_sort = np.array(list(zip(files, n_notes)))
+    sorting_f = lambda x: x[:,1].astype(int)
+    sorted_files = my_sort(to_sort, sorting_f, True)
+    logging.info(sorted_files)
 """
  
 PART 2 - Symbolic alignments and simple text dictionnaries
@@ -487,17 +486,34 @@ that the "distance matrix" previously used could simply be replaced by a
 # YOUR CODE HERE
 ################
 def main():
-    composers, composers_tracks = init()
-    composers, composers_tracks = init()
+    # Basic set of imports (here you can see if everything passes)
+    from ast import ListComp
+    from audioop import tostereo
+    import pickle
+    from xmlrpc.client import Boolean
+    from os import listdir
+    midi_database = pickle.load(open("atiam-fpa.pkl", "rb"))
+    composers = midi_database['composers']
+    composers_tracks = midi_database['composers_tracks']
+    files = ["atiam-fpa/" + f for f in listdir("atiam-fpa")]
     print("Question 1.1")
     logging.info("Question 1.1")
     q_1_1()
+
     print("Question 1.2")
     logging.info("Question 1.2")
     q_1_2(composers_tracks)
+
+    print("Question 1.3")
+    logging.info("Question 1.3")
+    q_1_3(composers_tracks)
+
     print("Question 1.4")
-    q_1_4(affichage=False)
+    logging.info("Question 1.4")
+    q_1_4(files, affichage=False)
+
     print("Question 1.5")
-    q_1_5()
-if __name__ == '__main__':
+    logging.info("Question 1.5")
+    q_1_5(files)
+if __name__ == "__main__":
     main()
