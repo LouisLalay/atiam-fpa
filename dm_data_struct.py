@@ -12,6 +12,7 @@ This script defines the overall exercise for ATIAM structure course
 
 # Basic set of imports (here you can see if everything passes)
 from ast import ListComp
+from audioop import tostereo
 import pickle
 from xmlrpc.client import Boolean
 
@@ -57,7 +58,7 @@ Q-1.1 Re-implement one of the array sorting algorithm seen in class
         (+1 point bonus for quicksort)
 
 '''
-def my_sort(array: np.array, f = lambda x : x) -> np.array:
+def my_sort(array: np.array, f = lambda x : x, reversed: bool = False) -> np.array:
     l = len(array)
     if l<=1:
         return array
@@ -66,6 +67,8 @@ def my_sort(array: np.array, f = lambda x : x) -> np.array:
         sup = array[f(array)>a]
         eq = array[f(array)==a]
         inf = array[f(array)<a]
+        if reversed :
+            return np.concatenate((my_sort(sup, f, reversed), eq, my_sort(inf, f, reversed)), axis=0)
         return np.concatenate((my_sort(inf, f), eq, my_sort(sup, f)), axis=0)
 def q_1_1():
     L = np.random.randint(-100, 100, 20)
@@ -74,6 +77,7 @@ def q_1_1():
         logging.info(f"Non sorted array     : {L}")
         logging.info(f"Sorted array         : {my_sort(L)}")
         logging.info(f"Sorted array (by abs): {my_sort(L, lambda x: abs(x))}")
+        logging.info(f"Reverse sorted array : {my_sort(L, reversed=True)}")
     first_axis = lambda x: x[:,0]
     second_axis = lambda x: x[:,1]
     logging.info(f"Non sorted matrix: \n{M}")
@@ -88,20 +92,15 @@ Q-1.2 Use your own algorithm to sort the collection of composers by decreasing n
 # YOUR CODE HERE
 ################
 
-def q_1_2(composers: list, composers_tracks: dict):
-    logging.info(f"{type(composers)=}")
-    logging.info(f"{type(composers_tracks)=}")
-    logging.info(f"{len(composers_tracks.keys())=}")
-    logging.info(f"{len(composers)=}")
-    keys = list(composers_tracks.keys())
-    val = list(composers_tracks.values())
-    val = [len(x) for x in val]
-    list_composers = np.array(list(zip(keys,val)))
-    sorting_f = lambda x: x[:,1]
-    sorted_composers = my_sort(list_composers, sorting_f)
-    logging.info(f"Sorted composers by number of tracks: {sorted_composers}")
-    with np.set_printoptions(edge = 50):
-        logging.info(f"Sorted number of tracks: {sorting_f(sorted_composers)}")
+def q_1_2(composers_tracks: dict):
+    composers = np.array(list(composers_tracks.keys()))
+    len_tracks = [len(composers_tracks[x]) for x in composers]
+    to_sort = np.array(list(zip(composers, len_tracks)))
+    sorting_f = lambda x: x[:,1].astype(int)
+    logging.info(sorting_f(to_sort))
+    sorted_composers = my_sort(to_sort, sorting_f, True)
+    with np.printoptions(linewidth=np.inf, edgeitems=10):
+        logging.info(sorted_composers)
 
 '''
 
@@ -495,7 +494,7 @@ def main():
     q_1_1()
     print("Question 1.2")
     logging.info("Question 1.2")
-    q_1_2(composers, composers_tracks)
+    q_1_2(composers_tracks)
     print("Question 1.4")
     q_1_4(affichage=False)
     print("Question 1.5")
