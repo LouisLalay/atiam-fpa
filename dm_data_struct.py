@@ -10,56 +10,18 @@ This script defines the overall exercise for ATIAM structure course
 @author: esling
 """
 
-# Define mode (keep it on False, this is just for my generative part)
-DEV_MODE=False
 # Basic set of imports (here you can see if everything passes)
-import os
+from ast import ListComp
 import pickle
-from re import A
-import string
+from xmlrpc.client import Boolean
 
-#%% Here collect the whole set of tracks
-if DEV_MODE:
-    # Define MIDI extension
-    midExt = ['mid', 'midi', 'MID', 'MIDI']
-    # Root directory
-    root = '/Users/esling/Coding/learning/orchestral-db/data'
-    database = {}
-    composers = []
-    composers_tracks = {}
-    tracks = []
-    # List composers first
-    for item in os.listdir(root):
-        if os.path.isdir(os.path.join(root, item)):
-            composers.append(item)
-    print('Found ' + str(len(composers)) + ' composers.')
-    prev_letter = ''
-    # now parse tracks
-    for comp in sorted(composers):
-        # Print advance
-        if (comp[0] != prev_letter):
-            prev_letter = comp[0]
-            print('   - Composers starting with ' + prev_letter)
-        # Check each sub-folder
-        for item in os.listdir(os.path.join(root, comp)):
-            cur_path = os.path.join(os.path.join(root, comp), item)
-            if os.path.isdir(cur_path):
-                for files in os.listdir(cur_path):
-                    if (os.path.splitext(files)[1][1:] in midExt):
-                        tracks.append(item)
-                        if comp in composers_tracks.keys():
-                            composers_tracks[comp].append(item)
-                        else:
-                            composers_tracks[comp] = [item]
-    print('Found ' + str(len(tracks)) + ' tracks.')
-    midi_database = {'composers':composers, 'composers_tracks':composers_tracks}
-    pickle.dump(midi_database, open("atiam-fpa.pkl", "wb"))
-else:
+# Here collect the whole set of tracks
+def init():
     midi_database = pickle.load(open("atiam-fpa.pkl", "rb"))
     composers = midi_database['composers']
     composers_tracks = midi_database['composers_tracks']
+    return composers, composers_tracks
 
-#%% 
 """
  
 PART 1 - Exploring a track collections (text dictionnaries) and playing with MIDI
@@ -85,14 +47,8 @@ import logging
 import pretty_midi
 import numpy as np
 import matplotlib.pyplot as plt
-from librosa import display
 
 logging.basicConfig(filename = 'data_struct.log', level = logging.INFO, filemode = 'w')
-
-# Here an example: print all composers with more than 10 tracks
-for composer,tracks in sorted(composers_tracks.items()):
-    if (len(tracks) >= 10):
-        logging.info(composer + ' : ' + str(len(tracks)) + ' tracks.')
 
 '''
 
@@ -101,17 +57,28 @@ Q-1.1 Re-implement one of the array sorting algorithm seen in class
         (+1 point bonus for quicksort)
 
 '''
-def my_sort(array):
+def my_sort(array: np.array, f = lambda x : x) -> np.array:
     l = len(array)
     if l<=1:
         return array
     else:
-        a = array[l//2]
-        sup = array[array>a]
-        eq = array[array==a]
-        inf = array[array<a]
-        return np.concatenate((my_sort(inf), eq, my_sort(sup)), axis=0)
-   
+        a = f(array)[l//2]
+        sup = array[f(array)>a]
+        eq = array[f(array)==a]
+        inf = array[f(array)<a]
+        return np.concatenate((my_sort(inf, f), eq, my_sort(sup, f)), axis=0)
+def q_1_1():
+    L = np.random.randint(-100, 100, 20)
+    M = np.random.randint(-100, 100, (20,2))
+    with np.printoptions(linewidth=np.inf):
+        logging.info(f"Non sorted array     : {L}")
+        logging.info(f"Sorted array         : {my_sort(L)}")
+        logging.info(f"Sorted array (by abs): {my_sort(L, lambda x: abs(x))}")
+    first_axis = lambda x: x[:,0]
+    second_axis = lambda x: x[:,1]
+    logging.info(f"Non sorted matrix: \n{M}")
+    logging.info(f"Sorted matrix by first axis: \n{my_sort(M, first_axis)}")
+    logging.info(f"Sorted matrix by second axis: \n{my_sort(M, second_axis)}")
 '''
 
 Q-1.2 Use your own algorithm to sort the collection of composers by decreasing number of tracks
@@ -121,9 +88,20 @@ Q-1.2 Use your own algorithm to sort the collection of composers by decreasing n
 # YOUR CODE HERE
 ################
 
-L = np.random.randint(-100, 100, 20)
-logging.info(f"Non sorted array : {L}")
-logging.info(f"Sorted array : {my_sort(L)}")
+def q_1_2(composers: list, composers_tracks: dict):
+    logging.info(f"{type(composers)=}")
+    logging.info(f"{type(composers_tracks)=}")
+    logging.info(f"{len(composers_tracks.keys())=}")
+    logging.info(f"{len(composers)=}")
+    keys = list(composers_tracks.keys())
+    val = list(composers_tracks.values())
+    val = [len(x) for x in val]
+    list_composers = np.array(list(zip(keys,val)))
+    sorting_f = lambda x: x[:,1]
+    sorted_composers = my_sort(list_composers, sorting_f)
+    logging.info(f"Sorted composers by number of tracks: {sorted_composers}")
+    with np.set_printoptions(edge = 50):
+        logging.info(f"Sorted number of tracks: {sorting_f(sorted_composers)}")
 
 '''
 
@@ -158,21 +136,51 @@ to import, plot and compare different files
 ################
 # YOUR CODE HERE
 ################
-def plot_piano_roll(pm, start_pitch, end_pitch, fs=100):
-    # Use librosa's specshow function for displaying the piano roll
-    plt.figure(figsize=(8,4))
-    display.specshow(pm.get_piano_roll(fs)[start_pitch:end_pitch],
-                             hop_length=1, sr=fs, x_axis='time', y_axis='cqt_note',
-                             fmin=pretty_midi.note_number_to_hz(start_pitch))
-    plt.show()
-
-folder = "atiam-fpa/"
-files = [f"beethoven_{i}.mid" for i in range(25)]
-for file in files:
-    midi_data = pretty_midi.PrettyMIDI(folder + file)
-    #plot_piano_roll(midi_data, 0, 255)
+def find_pitch_boundaries(mat: np.array):
+    '''Input: 128xN array of MIDI information
+    Ouput: Boundaries of non-empty content in mat
     
-
+    This function returns the boundaries of non-empty content in an array for display purposes'''
+    n_pitch, n = mat.shape
+    min_pitch, max_pitch = 0, n_pitch-1
+    inf, sup = 0, 0
+    while inf*sup==0:
+        if inf+mat[min_pitch].sum()==0:
+            min_pitch+=1
+        else:
+            inf = mat[min_pitch].sum()
+        if sup + mat[max_pitch].sum()==0:
+            max_pitch-=1
+        else:
+            sup = mat[max_pitch].sum()
+    return min_pitch, max_pitch+1
+def note_number_to_name(note_number: np.array) -> np.array:
+    '''Input: 1xN array of note numbers between 0 and 127
+    Output: 1xN array of note names between C-1 and G9'''
+    # Note names within one octave
+    semis = ['$C$', '$C_\#$', '$D$', '$D_\#$', '$E$', '$F$', '$F_\#$', '$G$', '$G_\#$', '$A$', '$A_\#$', '$B$']
+    # Get the semitone and the octave, and concatenate to create the name
+    return [f"{semis[note % 12]}{note//12 - 1}" for note in np.round(note_number)]
+def plot_midi(midi_data: pretty_midi.PrettyMIDI, ax: plt.Axes) -> None:
+    '''Plot MIDI notes of a file, trimmed to useful content'''
+    bpm = midi_data.estimate_tempo()
+    fs = bpm/60
+    mat = midi_data.get_piano_roll(fs)
+    min_pitch, max_pitch = find_pitch_boundaries(mat)
+    y_ticks = np.arange(0, max_pitch-min_pitch, (max_pitch-min_pitch)//4)
+    ax.set_yticks(y_ticks)
+    ax.set_yticklabels(note_number_to_name(y_ticks+min_pitch))
+    return ax.imshow(mat[min_pitch : max_pitch], 'inferno', aspect="auto", origin='lower')
+def q_1_4(affichage: Boolean = True):
+    folder = "atiam-fpa/"
+    files = [f"beethoven_{i}.mid" for i in range(25)]
+    fig, axes = plt.subplots(5)
+    if affichage:
+        for id, file in enumerate(files[::5]):
+            midi_data = pretty_midi.PrettyMIDI(folder + file)
+            im = plot_midi(midi_data, axes[id])
+            fig.colorbar(im)
+        plt.show()
 '''
 
 Q-1.5 Compute the number of notes in a MIDI and sort the collection
@@ -187,9 +195,9 @@ file. Then, sort the set of MIDI files based on the number of notes.
 
 def count_notes(midi_file):
     midi_data = pretty_midi.PrettyMIDI(midi_file)
-    return midi_data.get_piano_roll
-
-#%% 
+    return (midi_data.get_piano_roll(1)>0).sum()
+def q_1_5():
+    ...
 """
  
 PART 2 - Symbolic alignments and simple text dictionnaries
@@ -217,7 +225,7 @@ composers_tracks['Beethoven, Ludwig van'][0] => '"Ode to Joy"  (Arrang.)'
 
 """
     
-#%% Question 1 - Reimplementing the simple NW alignment 
+# Question 1 - Reimplementing the simple NW alignment 
 
 '''
 
@@ -235,15 +243,15 @@ def my_needleman_simple(str1, str2, matrix='atiam-fpa_alpha.dist', gap_open=-5, 
     ################
     return ('', '', score)
 
-# Reference code for testing
-from needleman import needleman_simple
-aligned = needleman_simple("CEELECANTH", "PELICAN", matrix='atiam-fpa_alpha.dist', gap=-2)
-print('Results for basic gap costs (linear)')
-print(aligned[0])
-print(aligned[1])
-print('Score : ' + str(aligned[2]))
+# # Reference code for testing
+# from needleman import needleman_simple
+# aligned = needleman_simple("CEELECANTH", "PELICAN", matrix='atiam-fpa_alpha.dist', gap=-2)
+# print('Results for basic gap costs (linear)')
+# print(aligned[0])
+# print(aligned[1])
+# print('Score : ' + str(aligned[2]))
 
-#%% Question 2 - Applying this to a collection of musical scores
+# Question 2 - Applying this to a collection of musical scores
 
 ################
 # YOUR CODE HERE
@@ -277,7 +285,6 @@ Q-2.3 Extend your previous code so that it can compare
 # YOUR CODE HERE
 ################
 
-#%% 
 """
  
 PART 3 - Extending the alignment algorithm and musical matching
@@ -315,27 +322,7 @@ Q-3.1 Extending to a true musical name matching
 
 ################
 # YOUR CODE HERE
-################
-
-# Example of creating a dummy matrix
-if DEV_MODE:
-    dist = open('atiam-fpa_alpha.dist', 'w')
-    dist.write('   ')
-    for m1 in string.ascii_uppercase:
-        dist.write(m1)
-        if (m1 < 'Z'):
-            dist.write('  ')
-    dist.write('\n')
-    for m1 in string.ascii_uppercase:
-        dist.write(m1 + '  ')
-        for m2 in string.ascii_uppercase:
-            if (m2 == m1):
-                dist.write('5  ')
-            else:
-                dist.write('-3  ')
-        dist.write('\n')
-    dist.close()
-    
+################    
     
 '''
 
@@ -350,12 +337,12 @@ Q-3.2 Extending the NW algorithm
 # YOUR CODE HERE
 ################
 
-from needleman import needleman_affine
-aligned = needleman_affine("CEELECANTH", "PELICAN", matrix='atiam-fpa_alpha.dist', gap_open=-5, gap_extend=-2)
-print('Results for affine gap costs')
-print(aligned[0])
-print(aligned[1])
-print('Score : ' + str(aligned[2]))
+# from needleman import needleman_affine
+# aligned = needleman_affine("CEELECANTH", "PELICAN", matrix='atiam-fpa_alpha.dist', gap_open=-5, gap_extend=-2)
+# print('Results for affine gap costs')
+# print(aligned[0])
+# print(aligned[1])
+# print('Score : ' + str(aligned[2]))
 
 
 #%% 
@@ -429,9 +416,9 @@ def importMIDI(f):
             track_name = part[0].bestName()
         except AttributeError:
             track_name = 'None'
-        cur_part = get_pianoroll_part(part, 16);
+        cur_part = get_pianoroll_part(part, 16)
         if (cur_part.shape[1] > 0):
-            all_parts[track_name] = cur_part;
+            all_parts[track_name] = cur_part
     print('Returning')
     return piece, all_parts
 
@@ -454,13 +441,13 @@ representation (pianoroll) of the corresponding notes (without dynamics).
 
 '''
 
-# Here a few properties that can be plotted ...
-piece.plot('scatter', 'quarterLength', 'pitch')
-piece.plot('scatterweighted', 'pitch', 'quarterLength')
-piece.plot('histogram', 'pitchClass')
-# Here is the list of all MIDI parts (with a pianoroll matrix)
-for key, val in sorted(all_parts.items()):
-    print('Instrument: %s has content: %s ' % (key, val))
+# # Here a few properties that can be plotted ...
+# piece.plot('scatter', 'quarterLength', 'pitch')
+# piece.plot('scatterweighted', 'pitch', 'quarterLength')
+# piece.plot('histogram', 'pitchClass')
+# # Here is the list of all MIDI parts (with a pianoroll matrix)
+# for key, val in sorted(all_parts.items()):
+#     print('Instrument: %s has content: %s ' % (key, val))
 
 ################
 # YOUR CODE HERE
@@ -500,13 +487,18 @@ that the "distance matrix" previously used could simply be replaced by a
 ################
 # YOUR CODE HERE
 ################
-
-#%% Just for preparing a random set of MIDIs to help you out
-if DEV_MODE:
-    nb_track = 0;
-    for val in np.random.randint(0, len(composers_tracks['Beethoven, Ludwig van']), 30):
-        cur_track = composers_tracks['Beethoven, Ludwig van'][val]
-        track_path = root + '/Beethoven, Ludwig van/' + cur_track + '/' + cur_track + '.mid'
-        os.system('cp ' + track_path + ' atiam-fpa/beethoven_' + str(nb_track) + '.mid')
-        print('cp "' + track_path + '" atiam-fpa/beethoven_' + str(nb_track) + '.mid')
-        nb_track = nb_track + 1
+def main():
+    composers, composers_tracks = init()
+    composers, composers_tracks = init()
+    print("Question 1.1")
+    logging.info("Question 1.1")
+    q_1_1()
+    print("Question 1.2")
+    logging.info("Question 1.2")
+    q_1_2(composers, composers_tracks)
+    print("Question 1.4")
+    q_1_4(affichage=False)
+    print("Question 1.5")
+    q_1_5()
+if __name__ == '__main__':
+    main()
