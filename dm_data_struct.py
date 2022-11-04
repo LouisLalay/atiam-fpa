@@ -10,12 +10,14 @@ This script defines the overall exercise for ATIAM structure course
 @author: esling
 """
 # Basic set of imports (here you can see if everything passes)
-import pickle
-from os import listdir
-import logging
-import pretty_midi
+import pickle, logging, pretty_midi, warnings
 import numpy as np
 import matplotlib.pyplot as plt
+from os import listdir, cpu_count
+from needleman import needleman_simple
+from music21 import converter
+from itertools import repeat, islice
+from multiprocessing import Pool
 
 logging.basicConfig(filename="data_struct.log", level=logging.INFO, filemode="w")
 
@@ -67,6 +69,8 @@ def my_sort(array: np.array, f=lambda x: x, reversed: bool = False) -> np.array:
 
 
 def q_1_1():
+    print("Question 1.1")
+    logging.info("Question 1.1 - Quicksort with sorting function as argument")
     L = np.random.randint(-100, 100, 20)
     M = np.random.randint(-100, 100, (20, 2))
     with np.printoptions(linewidth=np.inf):
@@ -92,6 +96,8 @@ Q-1.2 Use your own algorithm to sort the collection of composers by decreasing n
 
 
 def q_1_2(composers_tracks: dict):
+    print("Question 1.2")
+    logging.info("Question 1.2 - Sorting composers by decreasing number of tracks")
     composers = np.array(list(composers_tracks.keys()))
     len_tracks = [len(composers_tracks[x]) for x in composers]
     to_sort = np.array(list(zip(composers, len_tracks)))
@@ -111,7 +117,9 @@ Q-1.3 Extend your sorting procedure, to sort all tracks from all composers alpha
 ################
 
 
-def q_1_3(composers_tracks):
+def q_1_3(composers_tracks: dict):
+    print("Question 1.3")
+    logging.info("Question 1.3 - Sorting all tracks of the database alphabetically")
     tracks = np.concatenate(list(composers_tracks.values()))
     with np.printoptions(edgeitems=20):
         logging.info(my_sort(tracks))
@@ -161,7 +169,7 @@ def find_pitch_boundaries(mat: np.array):
     return min_pitch, max_pitch + 1
 
 
-def note_number_to_name(note_number: np.array) -> np.array:
+def note_number_to_name(note_number: np.array) -> list:
     """Input: 1xN array of note numbers between 0 and 127
     Output: 1xN array of note names between C-1 and G9"""
     # Note names within one octave
@@ -195,15 +203,18 @@ def plot_midi(midi_data: pretty_midi.PrettyMIDI, ax: plt.Axes) -> None:
     return ax.imshow(mat[min_pitch:max_pitch], "inferno", aspect="auto", origin="lower")
 
 
-def q_1_4(files, affichage: bool = True):
-    fig, axes = plt.subplots(5, 5)
-    if affichage:
-        for id, file in enumerate(files):
-            try:
-                midi_data = pretty_midi.PrettyMIDI(file)
-                im = plot_midi(midi_data, axes[id // 5, id % 5])
-            except:
-                print(f"Bad file {file}")
+def q_1_4(files, show: bool = True):
+    print("Question 1.4")
+    logging.info("Question 1.4 - Plot all the MIDI files available")
+    text = ["No Display", "Display ON "]
+    print(text[show * 1])
+    if show:
+        n_files = len(files)
+        n_rows = round(np.sqrt(n_files))
+        n_cols = n_files // n_rows + (n_files % n_rows > 0) * 1
+        fig, axes = plt.subplots(n_rows, n_cols)
+        for id, midi_data in enumerate(files):
+            im = plot_midi(midi_data, axes[id // n_cols, id % n_cols])
         plt.show()
 
 
@@ -220,16 +231,18 @@ file. Then, sort the set of MIDI files based on the number of notes.
 ################
 
 
-def count_notes(midi_file):
+def count_notes(midi_file: pretty_midi.PrettyMIDI):
     try:
-        midi_data = pretty_midi.PrettyMIDI(midi_file)
-        return (midi_data.get_piano_roll(1) > 0).sum()
+        return (midi_file.get_piano_roll(1) > 0).sum()
     except:
         return -1
 
 
-def q_1_5(files):
-    n_notes = [count_notes(x) for x in files]
+def q_1_5(files, midi_files):
+    print("Question 1.5")
+    logging.info("Question 1.5")
+
+    n_notes = [count_notes(x) for x in midi_files]
     to_sort = np.array(list(zip(files, n_notes)))
     sorting_f = lambda x: x[:, 1].astype(int)
     sorted_files = my_sort(to_sort, sorting_f, True)
@@ -276,29 +289,91 @@ Q-2.1 Here perform your Needleman-Wunsch (NW) implementation.
 """
 
 
+def substitution_indices(char1: str, char2: str):
+    alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    # ord('A') = 65, ord('Z') = 90
+    ind1 = ord(char1.upper()) - 65 if (char1.upper() in alpha) else -1
+    ind2 = ord(char2.upper()) - 65 if (char2.upper() in alpha) else -1
+    return ind1, ind2
+
+
+def reconstruct(traceback_matrix, arg1, arg2):
+    i, j = -1, -1
+    res1, res2 = [], []
+    traceback = 0
+    while traceback != -1:
+        traceback = traceback_matrix[i, j]
+        if traceback == 0:
+            # Match
+            res1.append(arg1[i])
+            res2.append(arg2[j])
+            i -= 1
+            j -= 1
+        elif traceback == 1:
+            # Insertion
+            res1.append(arg1[i])
+            res2.append("-")
+            i -= 1
+        elif traceback == 2:
+            # Deletion
+            res1.append("-")
+            res2.append(arg2[j])
+            j -= 1
+    res1.reverse()
+    res2.reverse()
+    return res1, res2
+
+
 def my_needleman_simple(
-    str1, str2, matrix="atiam-fpa_alpha.dist", gap_open=-5, gap_extend=-5
+    arg1,
+    arg2,
+    substitution_matrix: np.array,
+    gap: int = -5,
 ):
-    score = 0
-    ################
-    # YOUR CODE HERE
-    ################
-    return ("", "", score)
+    n1 = len(arg1)
+    n2 = len(arg2)
+    score_matrix = np.zeros((n1 + 1, n2 + 1))
+    # 0 stands for match
+    traceback_matrix = -np.ones((n1 + 1, n2 + 1))
+    score_matrix[1:, 0] = gap * np.arange(1, n1 + 1)
+    # 1 stands for insertion
+    traceback_matrix[1:, 0] = 1
+    score_matrix[0, 1:] = gap * np.arange(1, n2 + 1)
+    # 2 stands for deletion
+    traceback_matrix[0, 1:] = 2
+    for i in range(1, n1 + 1):
+        for j in range(1, n2 + 1):
+            ind1, ind2 = substitution_indices(arg1[i - 1], arg2[j - 1])
+            score_matrix[i, j], traceback_matrix[i, j] = max(
+                (
+                    score_matrix[i - 1, j - 1] + substitution_matrix[ind1, ind2],
+                    0,
+                ),
+                (score_matrix[i - 1, j] + gap, 1),
+                (score_matrix[i, j - 1] + gap, 2),
+            )
+    return (score_matrix[-1, -1], traceback_matrix)
 
-
-# # Reference code for testing
-from needleman import needleman_simple
-aligned = needleman_simple("CEELECANTH", "PELICAN", matrix='atiam-fpa_alpha.dist', gap=-2)
-print('Results for basic gap costs (linear)')
-print(aligned[0])
-print(aligned[1])
-print('Score : ' + str(aligned[2]))
-
-# Question 2 - Applying this to a collection of musical scores
 
 ################
 # YOUR CODE HERE
 ################
+def q_2_1(matrix):
+    print("Question 2.1")
+    logging.info("Question 2.1")
+    arg1 = "CEELECANTH"
+    arg2 = "PELICAN"
+    score, traceback_matrix = my_needleman_simple(arg1, arg2, matrix, gap=-2)
+    str1, str2 = reconstruct(traceback_matrix, arg1, arg2)
+    logging.info(f"Needleman-Wunsch:\n{''.join(str1)}\n{''.join(str2)}\nScore: {score}")
+    # # Reference code for testing
+    aligned = needleman_simple(
+        "CEELECANTH", "PELICAN", matrix="atiam-fpa_alpha.dist", gap=-2
+    )
+    logging.info(
+        f"Results for basic gap costs (linear):\n{aligned[0]}\n{aligned[1]}\nScore: {aligned[2]}"
+    )
+
 
 """
 
@@ -312,6 +387,58 @@ Q-2.2 Apply the NW algorithm between all tracks of each composer
 ################
 # YOUR CODE HERE
 ################
+def compare_names(items: tuple, matrix, lim_len=10, lim_score=15):
+    matches = []
+    # Sets do not store duplicates
+    _, tracks = items
+    tracks = set(tracks)
+    for name1 in tracks:
+        tracks = tracks - {name1}
+        for name2 in tracks:
+            if abs(len(name1) - len(name2)) > lim_len:
+                score = -1
+            else:
+                score, _ = my_needleman_simple(name1, name2, matrix)
+            if score >= lim_score:
+                matches.append((name1, name2))
+    return matches
+
+
+def q_2_2(composers_tracks: dict, matrix: np.array):
+    print("Question 2.2")
+    logging.info(
+        "Question 2.2 - Seek similarities between track names of each composers - Truncated problem"
+    )
+    lim_score = 80
+    lim_len = 8
+    n = len(composers_tracks)
+    matches = []
+    for i, item in enumerate(composers_tracks.items()):
+        # Sets do not store duplicates
+        m = len(set(item[1]))
+        print(f"Progression: {i}/{n} composers. {m} names to compare{' '*10}", end="\r")
+        matches.append(compare_names(item, matrix, lim_len, lim_score))
+    logging.info(matches)
+
+
+
+
+
+def q_2_2_multi_proc(composers_tracks: dict, matrix: np.array):
+    print("Question 2.2")
+    logging.info(
+        "Question 2.2 - Seek similarities between track names of each composers - Multiprocessing version"
+    )
+    lim_score = 80
+    lim_len = 8
+    args = zip(
+        composers_tracks.items(), repeat(matrix), repeat(lim_len), repeat(lim_score)
+    )
+    with Pool(cpu_count()) as pool:
+        matches = pool.starmap(compare_names, args)
+    with open("name_matches.txt", "w") as file:
+        file.write(f"{matches}")
+
 
 """
 
@@ -327,6 +454,10 @@ Q-2.3 Extend your previous code so that it can compare
 ################
 # YOUR CODE HERE
 ################
+def q_2_3():
+    print("Question 2.3")
+    logging.info("Question 2.3")
+
 
 """
  
@@ -366,6 +497,10 @@ Q-3.1 Extending to a true musical name matching
 ################
 # YOUR CODE HERE
 ################
+def q_3_1():
+    print("Question 3.1")
+    logging.info("Question 3.1")
+
 
 """
 
@@ -380,15 +515,19 @@ Q-3.2 Extending the NW algorithm
 # YOUR CODE HERE
 ################
 
-# from needleman import needleman_affine
-# aligned = needleman_affine("CEELECANTH", "PELICAN", matrix='atiam-fpa_alpha.dist', gap_open=-5, gap_extend=-2)
-# print('Results for affine gap costs')
-# print(aligned[0])
-# print(aligned[1])
-# print('Score : ' + str(aligned[2]))
+
+def q_3_2():
+    print("Question 3.2")
+    logging.info("Question 3.2")
+
+    # from needleman import needleman_affine
+    # aligned = needleman_affine("CEELECANTH", "PELICAN", matrix='atiam-fpa_alpha.dist', gap_open=-5, gap_extend=-2)
+    # print('Results for affine gap costs')
+    # print(aligned[0])
+    # print(aligned[1])
+    # print('Score : ' + str(aligned[2]))
 
 
-#%%
 """
  
 PART 4 - Alignments between MIDI files and error-detection
@@ -414,11 +553,9 @@ to go and read the documentation of this library online
 
 """
 
-#%% Question 4 - Importing and plotting MIDI files (using Music21)
+# Question 4 - Importing and plotting MIDI files (using Music21)
 
 import math
-import numpy as np
-from music21 import converter
 
 
 def get_start_time(el, measure_offset, quantization):
@@ -500,13 +637,19 @@ representation (pianoroll) of the corresponding notes (without dynamics).
 
 """
 
-# # Here a few properties that can be plotted ...
-# piece.plot('scatter', 'quarterLength', 'pitch')
-# piece.plot('scatterweighted', 'pitch', 'quarterLength')
-# piece.plot('histogram', 'pitchClass')
-# # Here is the list of all MIDI parts (with a pianoroll matrix)
-# for key, val in sorted(all_parts.items()):
-#     print('Instrument: %s has content: %s ' % (key, val))
+
+def q_4_1(f):
+    print("Question 4.1")
+    logging.info("Question 4.1")
+    # piece, all_parts = importMIDI(f)
+    # # # Here a few properties that can be plotted ...
+    # piece.plot("scatter", "quarterLength", "pitch")
+    # piece.plot("scatterweighted", "pitch", "quarterLength")
+    # piece.plot("histogram", "pitchClass")
+    # # Here is the list of all MIDI parts (with a pianoroll matrix)
+    # for key, val in sorted(all_parts.items()):
+    #     print("Instrument: %s has content: %s " % (key, val))
+
 
 ################
 # YOUR CODE HERE
@@ -527,6 +670,10 @@ Based on your exploration in the previous questions and your own intuition,
 ################
 # YOUR CODE HERE
 ################
+def q_4_2():
+    print("Question 4.2")
+    logging.info("Question 4.2")
+
 
 """
 
@@ -546,31 +693,64 @@ that the "distance matrix" previously used could simply be replaced by a
 ################
 # YOUR CODE HERE
 ################
+def q_4_3():
+    print("Question 4.3")
+    logging.info("Question 4.3")
+
+
 def main():
+    # Loading databas
     midi_database = pickle.load(open("atiam-fpa.pkl", "rb"))
     composers = midi_database["composers"]
     composers_tracks = midi_database["composers_tracks"]
+    # Extracting file names
     files = ["atiam-fpa/" + f for f in listdir("atiam-fpa")]
-
-    print("Question 1.1")
-    logging.info("Question 1.1")
+    # Extracting MIDI informations with pretty_midi
+    pretty_midi_files = []
+    for file in files:
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=RuntimeWarning)
+                pretty_midi_files.append(pretty_midi.PrettyMIDI(file))
+        except:
+            print(f"Bad file {file}")
+    # Extracting alphabet substitution matrix
+    with open("atiam-fpa_alpha.dist", "r") as file:
+        lines = file.readlines()
+    basic_alphabet_matrix = np.array(
+        [l.rstrip("\n").split("  ")[1:-1] for l in lines[1:]]
+    ).astype("int")
+    # Adding an extra dimension for spaces and special chars
+    alphabet_matrix = -3 * np.ones(
+        (basic_alphabet_matrix.shape[0] + 1, basic_alphabet_matrix.shape[1] + 1)
+    )
+    alphabet_matrix[-1, -1] = 5
+    alphabet_matrix[:-1, :-1] = basic_alphabet_matrix
+    # Extracting dna matrix
+    with open("atiam-fpa_dna.dist", "r") as file:
+        lines = file.readlines()
+    lines = [l for l in lines if l[0] != "#"]
+    dna_matrix = np.array([l.rstrip("\n").split()[1:-1] for l in lines[1:]]).astype(
+        "int"
+    )
+    print("######### Partie 1 #########")
     q_1_1()
-
-    print("Question 1.2")
-    logging.info("Question 1.2")
     q_1_2(composers_tracks)
-
-    print("Question 1.3")
-    logging.info("Question 1.3")
     q_1_3(composers_tracks)
-
-    print("Question 1.4")
-    logging.info("Question 1.4")
-    q_1_4(files, affichage=False)
-
-    print("Question 1.5")
-    logging.info("Question 1.5")
-    q_1_5(files)
+    q_1_4(pretty_midi_files, True)
+    q_1_5(files, pretty_midi_files)
+    print("######### Partie 2 #########")
+    q_2_1(alphabet_matrix)
+    q_2_2(dict(islice(composers_tracks.items(), 1, 10)), alphabet_matrix)
+    q_2_2_multi_proc(composers_tracks, alphabet_matrix)
+    # q_2_3()
+    # print("######### Partie 3 #########")
+    # q_3_1()
+    # q_3_2()
+    # print("######### Partie 4 #########")
+    # q_4_1(files[0])
+    # q_4_2()
+    # q_4_3()
 
 
 if __name__ == "__main__":
