@@ -289,12 +289,11 @@ Q-2.1 Here perform your Needleman-Wunsch (NW) implementation.
 """
 
 
-def substitution_indices(char1: str, char2: str):
-    alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+def substitution_indice(char: str, alpha: str):
     # ord('A') = 65, ord('Z') = 90
-    ind1 = ord(char1.upper()) - 65 if (char1.upper() in alpha) else -1
-    ind2 = ord(char2.upper()) - 65 if (char2.upper() in alpha) else -1
-    return ind1, ind2
+    if char in alpha:
+        return ord(char) - 65
+    return -1
 
 
 def reconstruct(traceback_matrix, arg1, arg2):
@@ -325,11 +324,14 @@ def reconstruct(traceback_matrix, arg1, arg2):
 
 
 def my_needleman_simple(
-    arg1,
-    arg2,
+    arg1: str,
+    arg2: str,
     substitution_matrix: np.array,
+    alpha: str,
     gap: int = -5,
 ):
+    arg1 = arg1.upper()
+    arg2 = arg2.upper()
     n1 = len(arg1)
     n2 = len(arg2)
     score_matrix = np.zeros((n1 + 1, n2 + 1))
@@ -343,27 +345,56 @@ def my_needleman_simple(
     traceback_matrix[0, 1:] = 2
     for i in range(1, n1 + 1):
         for j in range(1, n2 + 1):
-            ind1, ind2 = substitution_indices(arg1[i - 1], arg2[j - 1])
+            ind1, ind2 = substitution_indice(arg1[i - 1], alpha), substitution_indice(
+                arg2[j - 1], alpha
+            )
             score_matrix[i, j], traceback_matrix[i, j] = max(
                 (
-                    score_matrix[i - 1, j - 1] + substitution_matrix[ind1, ind2],
-                    0,
-                ),
-                (score_matrix[i - 1, j] + gap, 1),
-                (score_matrix[i, j - 1] + gap, 2),
+                    (score_matrix[i - 1, j - 1] + substitution_matrix[ind1, ind2], 0),
+                    (score_matrix[i - 1, j] + gap, 1),
+                    (score_matrix[i, j - 1] + gap, 2),
+                )
             )
     return (score_matrix[-1, -1], traceback_matrix)
+
+
+def my_needleman_opti(
+    arg1: str,
+    arg2: str,
+    substitution_matrix: np.array,
+    alpha: str,
+    gap: int = -5,
+):
+    n1 = len(arg1)
+    n2 = len(arg2)
+    score_matrix = np.zeros((n1 + 1, n2 + 1))
+    score_matrix[1:, 0] = gap * np.arange(1, n1 + 1)
+    score_matrix[0, 1:] = gap * np.arange(1, n2 + 1)
+    for i in range(1, n1 + 1):
+        for j in range(1, n2 + 1):
+            ind1 = ord(arg1[i - 1]) - 65 if arg1[i - 1] in alpha else -1
+            ind2 = ord(arg2[j - 1]) - 65 if arg2[j - 1] in alpha else -1
+            score_matrix[i, j] = max(
+                score_matrix[i - 1, j - 1] + substitution_matrix[ind1, ind2],
+                score_matrix[i - 1, j] + gap,
+                score_matrix[i, j - 1] + gap,
+            )
+    return score_matrix[-1, -1]
 
 
 ################
 # YOUR CODE HERE
 ################
+from time import perf_counter
+
+
 def q_2_1(matrix):
     print("Question 2.1")
     logging.info("Question 2.1")
+    alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     arg1 = "CEELECANTH"
     arg2 = "PELICAN"
-    score, traceback_matrix = my_needleman_simple(arg1, arg2, matrix, gap=-2)
+    score, traceback_matrix = my_needleman_simple(arg1, arg2, matrix, alpha, gap=-2)
     str1, str2 = reconstruct(traceback_matrix, arg1, arg2)
     logging.info(f"Needleman-Wunsch:\n{''.join(str1)}\n{''.join(str2)}\nScore: {score}")
     # # Reference code for testing
@@ -387,18 +418,19 @@ Q-2.2 Apply the NW algorithm between all tracks of each composer
 ################
 # YOUR CODE HERE
 ################
-def compare_names(items: tuple, matrix, lim_len=10, lim_score=15):
+def compare_names(items: tuple, matrix, alpha:str, lim_len=10, lim_score=15):
     matches = []
     # Sets do not store duplicates
     _, tracks = items
     tracks = set(tracks)
     for name1 in tracks:
         tracks = tracks - {name1}
+        name1 = name1.upper()
         for name2 in tracks:
             if abs(len(name1) - len(name2)) > lim_len:
                 score = -1
             else:
-                score, _ = my_needleman_simple(name1, name2, matrix)
+                score = my_needleman_opti(name1, name2.upper(), matrix, alpha)
             if score >= lim_score:
                 matches.append((name1, name2))
     return matches
@@ -409,6 +441,7 @@ def q_2_2(composers_tracks: dict, matrix: np.array):
     logging.info(
         "Question 2.2 - Seek similarities between track names of each composers - Truncated problem"
     )
+    alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     lim_score = 80
     lim_len = 8
     n = len(composers_tracks)
@@ -417,22 +450,20 @@ def q_2_2(composers_tracks: dict, matrix: np.array):
         # Sets do not store duplicates
         m = len(set(item[1]))
         print(f"Progression: {i}/{n} composers. {m} names to compare{' '*10}", end="\r")
-        matches.append(compare_names(item, matrix, lim_len, lim_score))
+        matches.append(compare_names(item, matrix, alpha, lim_len, lim_score))
     logging.info(matches)
 
 
-
-
-
 def q_2_2_multi_proc(composers_tracks: dict, matrix: np.array):
-    print("Question 2.2")
+    print("Question 2.2 - Takes around 10 minutes")
     logging.info(
         "Question 2.2 - Seek similarities between track names of each composers - Multiprocessing version"
     )
     lim_score = 80
     lim_len = 8
+    alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     args = zip(
-        composers_tracks.items(), repeat(matrix), repeat(lim_len), repeat(lim_score)
+        composers_tracks.items(), repeat(matrix), repeat(alpha), repeat(lim_len), repeat(lim_score)
     )
     with Pool(cpu_count()) as pool:
         matches = pool.starmap(compare_names, args)
@@ -565,7 +596,7 @@ def get_start_time(el, measure_offset, quantization):
                 ((measure_offset[el.measureNumber] or 0) + el.offset) * quantization
             )
         )
-    # Else, no time defined for this element and the functino return None
+    # Else, no time defined for this element and the function returns None
 
 
 def get_end_time(el, measure_offset, quantization):
@@ -580,7 +611,7 @@ def get_end_time(el, measure_offset, quantization):
                 * quantization
             )
         )
-    # Else, no time defined for this element and the functino return None
+    # Else, no time defined for this element and the function returns None
 
 
 def get_pianoroll_part(part, quantization):
@@ -734,11 +765,11 @@ def main():
         "int"
     )
     print("######### Partie 1 #########")
-    q_1_1()
-    q_1_2(composers_tracks)
-    q_1_3(composers_tracks)
-    q_1_4(pretty_midi_files, True)
-    q_1_5(files, pretty_midi_files)
+    # q_1_1()
+    # q_1_2(composers_tracks)
+    # q_1_3(composers_tracks)
+    # q_1_4(pretty_midi_files, True)
+    # q_1_5(files, pretty_midi_files)
     print("######### Partie 2 #########")
     q_2_1(alphabet_matrix)
     q_2_2(dict(islice(composers_tracks.items(), 1, 10)), alphabet_matrix)
