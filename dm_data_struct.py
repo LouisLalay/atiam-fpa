@@ -11,10 +11,11 @@ This script defines the overall exercise for ATIAM structure course
 """
 # Basic set of imports (here you can see if everything passes)
 import pickle, logging, pretty_midi, warnings
+from unittest.mock import mock_open
 import numpy as np
 import matplotlib.pyplot as plt
 from os import listdir, cpu_count
-from needleman import needleman_simple
+from needleman import needleman_simple, needleman_affine
 from music21 import converter
 from itertools import repeat, islice
 from multiprocessing import Pool
@@ -455,7 +456,7 @@ def q_2_2(composers_tracks: dict, matrix: np.array):
 
 
 def q_2_2_multi_proc(composers_tracks: dict, matrix: np.array):
-    print("Question 2.2 - Takes around 10 minutes")
+    print(f"Question 2.2 - Takes around 3 minutes{' '*10}")
     logging.info(
         "Question 2.2 - Seek similarities between track names of each composers - Multiprocessing version"
     )
@@ -471,7 +472,7 @@ def q_2_2_multi_proc(composers_tracks: dict, matrix: np.array):
     )
     with Pool(cpu_count()) as pool:
         matches = pool.starmap(compare_names, args)
-    with open("name_matches.txt", "w") as file:
+    with open("name_matches.txt", "w", encoding="utf-8") as file:
         file.write(f"{matches}")
 
 
@@ -488,15 +489,20 @@ Q-2.3 Extend your previous code so that it can compare
 
 
 def compare_names_all_dataset(
-    split_names: np.array, all_names: np.array, matrix, alpha, lim_score: int, lim_len: int
+    split_names: np.array,
+    all_names: np.array,
+    matrix,
+    alpha,
+    lim_score: int,
+    lim_len: int,
 ):
     matches = []
     # Sets do not store duplicates
-    print(f"{len(split_names)} to compare")
     for name1 in set(split_names):
+        compare_set = all_names - set(name1)
         name1 = name1.upper()
-        for name2 in all_names:
-            name2 = name1.upper()
+        for name2 in compare_set:
+            name2 = name2.upper()
             if abs(len(name1) - len(name2)) > lim_len:
                 score = -1
             else:
@@ -509,8 +515,13 @@ def compare_names_all_dataset(
 ################
 # YOUR CODE HERE
 ################
+
+# The following function is the brute-force approach, but a smarter way
+# would be to first sort the names in small groups of similar names, then
+# only take one name per group to compare all the names indirectly.
+# For timing reasons, this is not yet implemented
 def q_2_3(composers_tracks: dict, matrix: np.array):
-    print("Question 2.3")
+    print("Question 2.3 - Takes way too much time, don't run it")
     logging.info("Question 2.3 - Needleman accross all names")
 
     n_cpu = cpu_count()
@@ -522,7 +533,7 @@ def q_2_3(composers_tracks: dict, matrix: np.array):
     n = names.shape[0]
     r = n % n_cpu
     split_names = np.split(names[:-r], n_cpu)
-    temp = np.empty(split_names[0].shape[0] + r, dtype='<U256')
+    temp = np.empty(split_names[0].shape[0] + r, dtype="<U256")
     temp[:-r] = split_names[0]
     temp[-r:] = names[-r:]
     split_names[0] = temp
@@ -536,7 +547,7 @@ def q_2_3(composers_tracks: dict, matrix: np.array):
     )
     with Pool(n_cpu) as pool:
         matches = pool.starmap(compare_names_all_dataset, args)
-    with open("name_matches_all_dataset.txt", "w") as file:
+    with open("name_matches_all_dataset.txt", "w", encoding="utf-8") as file:
         file.write(f"{matches}")
 
 
@@ -578,11 +589,11 @@ Q-3.1 Extending to a true musical name matching
 ################
 # YOUR CODE HERE
 ################
-def q_3_1():
+def q_3_1(composers_tracks):
     print("Question 3.1")
     logging.info("Question 3.1")
-
-
+    logging.info(f"{composers_tracks['Mozart, Wolfgang Amadeus']=}")
+    # Many pieces names are duplicates and many only for one digit
 """
 
 Q-3.2 Extending the NW algorithm 
@@ -600,13 +611,11 @@ Q-3.2 Extending the NW algorithm
 def q_3_2():
     print("Question 3.2")
     logging.info("Question 3.2")
-
-    # from needleman import needleman_affine
-    # aligned = needleman_affine("CEELECANTH", "PELICAN", matrix='atiam-fpa_alpha.dist', gap_open=-5, gap_extend=-2)
-    # print('Results for affine gap costs')
-    # print(aligned[0])
-    # print(aligned[1])
-    # print('Score : ' + str(aligned[2]))
+    aligned = needleman_affine("CEELECANTH", "PELICAN", matrix='atiam-fpa_alpha.dist', gap_open=-5, gap_extend=-2)
+    print('Results for affine gap costs')
+    print(aligned[0])
+    print(aligned[1])
+    print('Score : ' + str(aligned[2]))
 
 
 """
@@ -733,10 +742,12 @@ def example_4_1(file):
 ################
 # YOUR CODE HERE
 ################
-def q_4_1(files: list):
+def q_4_1(file: str):
     print("Question 4.1")
     logging.info("Question 4.1 - Exploring Music21")
-    
+
+    midi_data = converter.parse(file)
+
 """
 
 Q-4.2 Automatic evaluation of a MIDI file quality
@@ -781,9 +792,8 @@ def q_4_3():
 
 
 def main():
-    # Loading databas
+    # Loading database
     midi_database = pickle.load(open("atiam-fpa.pkl", "rb"))
-    composers = midi_database["composers"]
     composers_tracks = midi_database["composers_tracks"]
     # Extracting file names
     files = ["atiam-fpa/" + f for f in listdir("atiam-fpa")]
@@ -815,21 +825,26 @@ def main():
     dna_matrix = np.array([l.rstrip("\n").split()[1:-1] for l in lines[1:]]).astype(
         "int"
     )
-    print("######### Partie 1 #########")
-    # q_1_1()
-    # q_1_2(composers_tracks)
-    # q_1_3(composers_tracks)
-    # q_1_4(pretty_midi_files, True)
-    # q_1_5(files, pretty_midi_files)
-    print("######### Partie 2 #########")
-    # q_2_1(alphabet_matrix)
-    # q_2_2(dict(islice(composers_tracks.items(), 1, 10)), alphabet_matrix)
-    # q_2_2_multi_proc(composers_tracks, alphabet_matrix)
-    # q_2_3(composers_tracks, alphabet_matrix)
-    print("######### Partie 3 #########")
-    # q_3_1()
-    # q_3_2()
-    print("######### Partie 4 #########")
+    print("######### Part 1 #########")
+    q_1_1()
+    q_1_2(composers_tracks)
+    q_1_3(composers_tracks)
+    q_1_4(pretty_midi_files, True)
+    q_1_5(files, pretty_midi_files)
+
+    print("######### Part 2 #########")
+    q_2_1(alphabet_matrix)
+    # Only a fraction is given for the single process version
+    q_2_2(dict(islice(composers_tracks.items(), 1, 10)), alphabet_matrix)
+    q_2_2_multi_proc(composers_tracks, alphabet_matrix)
+    # Same reason
+    q_2_3(dict(islice(composers_tracks.items(), 1, 10)), alphabet_matrix)
+
+    print("######### Part 3 #########")
+    q_3_1(composers_tracks)
+    q_3_2()
+
+    print("######### Part 4 #########")
     q_4_1(files[0])
     q_4_2()
     q_4_3()
