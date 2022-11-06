@@ -418,7 +418,7 @@ Q-2.2 Apply the NW algorithm between all tracks of each composer
 ################
 # YOUR CODE HERE
 ################
-def compare_names(items: tuple, matrix, alpha:str, lim_len=10, lim_score=15):
+def compare_names(items: tuple, matrix, alpha: str, lim_len=10, lim_score=15):
     matches = []
     # Sets do not store duplicates
     _, tracks = items
@@ -463,7 +463,11 @@ def q_2_2_multi_proc(composers_tracks: dict, matrix: np.array):
     lim_len = 8
     alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     args = zip(
-        composers_tracks.items(), repeat(matrix), repeat(alpha), repeat(lim_len), repeat(lim_score)
+        composers_tracks.items(),
+        repeat(matrix),
+        repeat(alpha),
+        repeat(lim_len),
+        repeat(lim_score),
     )
     with Pool(cpu_count()) as pool:
         matches = pool.starmap(compare_names, args)
@@ -482,16 +486,62 @@ Q-2.3 Extend your previous code so that it can compare
     
 """
 
+
+def compare_names_all_dataset(
+    split_names: np.array, all_names: np.array, matrix, alpha, lim_score: int, lim_len: int
+):
+    matches = []
+    # Sets do not store duplicates
+    print(f"{len(split_names)} to compare")
+    for name1 in set(split_names):
+        name1 = name1.upper()
+        for name2 in all_names:
+            name2 = name1.upper()
+            if abs(len(name1) - len(name2)) > lim_len:
+                score = -1
+            else:
+                score = my_needleman_opti(name1, name2.upper(), matrix, alpha)
+            if score >= lim_score:
+                matches.append((name1, name2))
+    return matches
+
+
 ################
 # YOUR CODE HERE
 ################
-def q_2_3():
+def q_2_3(composers_tracks: dict, matrix: np.array):
     print("Question 2.3")
-    logging.info("Question 2.3")
+    logging.info("Question 2.3 - Needleman accross all names")
+
+    n_cpu = cpu_count()
+
+    names = np.concatenate(list(composers_tracks.values()))
+    lim_score = 80
+    lim_len = 8
+    alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    n = names.shape[0]
+    r = n % n_cpu
+    split_names = np.split(names[:-r], n_cpu)
+    temp = np.empty(split_names[0].shape[0] + r, dtype='<U256')
+    temp[:-r] = split_names[0]
+    temp[-r:] = names[-r:]
+    split_names[0] = temp
+    args = zip(
+        split_names,
+        repeat(set(names)),
+        repeat(matrix),
+        repeat(alpha),
+        repeat(lim_len),
+        repeat(lim_score),
+    )
+    with Pool(n_cpu) as pool:
+        matches = pool.starmap(compare_names_all_dataset, args)
+    with open("name_matches_all_dataset.txt", "w") as file:
+        file.write(f"{matches}")
 
 
 """
- 
+
 PART 3 - Extending the alignment algorithm and musical matching
 
 You might have seen from the previous results that
@@ -669,23 +719,24 @@ representation (pianoroll) of the corresponding notes (without dynamics).
 """
 
 
-def q_4_1(f):
-    print("Question 4.1")
-    logging.info("Question 4.1")
-    # piece, all_parts = importMIDI(f)
-    # # # Here a few properties that can be plotted ...
-    # piece.plot("scatter", "quarterLength", "pitch")
-    # piece.plot("scatterweighted", "pitch", "quarterLength")
-    # piece.plot("histogram", "pitchClass")
-    # # Here is the list of all MIDI parts (with a pianoroll matrix)
-    # for key, val in sorted(all_parts.items()):
-    #     print("Instrument: %s has content: %s " % (key, val))
+def example_4_1(file):
+    piece, all_parts = importMIDI(file)
+    # # Here a few properties that can be plotted ...
+    piece.plot("scatter", "quarterLength", "pitch")
+    piece.plot("scatterweighted", "pitch", "quarterLength")
+    piece.plot("histogram", "pitchClass")
+    # Here is the list of all MIDI parts (with a pianoroll matrix)
+    for key, val in sorted(all_parts.items()):
+        print("Instrument: %s has content: %s " % (key, val))
 
 
 ################
 # YOUR CODE HERE
 ################
-
+def q_4_1(files: list):
+    print("Question 4.1")
+    logging.info("Question 4.1 - Exploring Music21")
+    
 """
 
 Q-4.2 Automatic evaluation of a MIDI file quality
@@ -771,17 +822,17 @@ def main():
     # q_1_4(pretty_midi_files, True)
     # q_1_5(files, pretty_midi_files)
     print("######### Partie 2 #########")
-    q_2_1(alphabet_matrix)
-    q_2_2(dict(islice(composers_tracks.items(), 1, 10)), alphabet_matrix)
-    q_2_2_multi_proc(composers_tracks, alphabet_matrix)
-    # q_2_3()
-    # print("######### Partie 3 #########")
+    # q_2_1(alphabet_matrix)
+    # q_2_2(dict(islice(composers_tracks.items(), 1, 10)), alphabet_matrix)
+    # q_2_2_multi_proc(composers_tracks, alphabet_matrix)
+    # q_2_3(composers_tracks, alphabet_matrix)
+    print("######### Partie 3 #########")
     # q_3_1()
     # q_3_2()
-    # print("######### Partie 4 #########")
-    # q_4_1(files[0])
-    # q_4_2()
-    # q_4_3()
+    print("######### Partie 4 #########")
+    q_4_1(files[0])
+    q_4_2()
+    q_4_3()
 
 
 if __name__ == "__main__":
